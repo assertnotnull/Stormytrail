@@ -16,41 +16,16 @@ config.dev = !(process.env.NODE_ENV === 'production')
 
 let mySocket
 let Logs = {}
-var showLogByLabel 	= process.env.SHOW_LOG_BY_LABEL || 'logio';
-var showAllLogs 	= process.env.SHOW_ALL_LOGS || true;
-// const parser = require('./parser')
+
 const sparser = require('./simpleparser')
 
-function sendLogs(containerId, logs){
-	mySocket.emit('terminal:logs', {
-		id: containerId,
-		logs: logs
-	});
-}
-setInterval(function(){
-	if(mySocket == null || !Logs[mySocket.id]) return;
-	for (var containerId in Logs[mySocket.id]) {
-		if (Logs[mySocket.id][containerId].length > 0) {
-			sendLogs(containerId, Logs[mySocket.id][containerId])
-			Logs[mySocket.id][containerId] = [];
-		}
-	}
-}, 500);
-
-function toEmit(container) {
-  return {
-      id: container.Id,
-      image: container.Image,
-      name: container.Names[0].replace(/^\//, '')
-  }
-}
-
+let watchedContainers = {}
 
 async function start() {
   // Instantiate nuxt.js
   // const nuxt = new Nuxt(config)
 
-  const host = process.env.HOST || '127.0.0.1'
+  const host = process.env.HOST || 'localhost'
   const port = process.env.PORT || 3000
 
   // Build only in dev mode
@@ -65,93 +40,69 @@ async function start() {
 
   // fastify.use(nuxt.render)
 
-  io.on('connection', socket => {
+  io.on('connection', async socket => {
     fastify.log.info('connected')
 
     mySocket = socket;
     Logs[mySocket.id] = {};
-    docker.listContainers({all: true }, function(err, containers){
-      console.log(containers)
-      if(!showAllLogs){
-        containers = containers.filter(function(container){
-          return (container.Labels) && 
-          (container.Labels.hasOwnProperty(showLogByLabel));
-        });
-      }
-      // fetchLogs(containers, mySocket.id);
-      containers.forEach(function(container){
-        // Logs[mySocketId][container.Id] = '';
-        socket.on(container.Names[0], () => {
-          var data = toEmit(container);
-          docker.getContainer(container.Id).logs({
-            follow: true, 
-            stdout: true, 
-            stderr: true, 
-            tail: 10
-          }, function (err, stream) {
-              // var filter = parser(data, {
-              //   json: false,
-              //   newline: true
-              // })
-            stream
-            .pipe(sparser)
-            .on('data', function(line){
-              socket.emit(container.Names[0], `${container.Names[0]} - ${line}`) 
-              // Logs[mySocketId][container.Id] += '<br>';
-              // Logs[mySocketId][container.Id] += chunk.line;
-            });
-          });
+    socket.on('subscribe', data => {
+      console.log(`subscribing ${data}`)
+    })
+    let containers = await docker.listContainers({all: true});
+    containers.forEach(function(container){
+      let containerName = container.Names[0];
+      Logs[mySocket.id][containerName] = [];
+      
+      socket.on(`listen-${containerName}`, async () => {
+        //TODO: use stream.pause on socket quiet-container
+        //TODO: use stream.resume on socket listen-container
+        watchedContainers[containerName] = docker.getContainer(container.Id);
+        // watchedContainers[containerName].logs({
+        //   follow: true,  
+        //   stdout: true, 
+        //   stderr: true, 
+        //   tail: 10
+        // }, function (err, stream) {
+        //     // var filter = parser(data, {
+        //     //   json: false,
+        //     //   newline: true
+        //     // })
+        //   stream
+        //   .pipe(sparser)
+        //   .on('data', function(line){
+        //     // socket.emit("logs", `${container.Names[0]} - ${line}`) 
+        //     Logs[mySocket.id][containerName].push(line);
+        //   });
+        // });
+
+        let stream = await watchedContainers[containerName].logs({
+          follow: true,  
+          stdout: true, 
+          stderr: true, 
+          tail: 10
         })
-      });	
+        stream
+        .pipe(sparser)
+        .on('data', function(line){
+          // socket.emit("logs", `${container.Names[0]} - ${line}`) 
+          Logs[mySocket.id][containerName].push(line);
+        });
+      })
       socket.emit('initialize', {containers});
     });
 
-    socket.on('log', containerId => {
-      console.log('log event received')
-      const container = docker.getContainer(containerId)
-      const logs = bluebird.promisify(container.logs)
-      // container.logs({
-      //   follow: true, 
-      //   stdout: true, 
-      //   stderr: true, 
-      //   tail: 50
-      // }, function (err, stream) {
-      //   console.log(err)
-      //     var filter = parser(data, {
-      //       json: false,
-      //       newline: true
-      //     })
-      //   stream.pipe(filter);
-      //   filter.on('data', function(chunk){
-      //     Logs[mySocketId][container.Id] += '<br>';
-      //     Logs[mySocketId][container.Id] += ansi_up.ansi_to_html(chunk.line);
-      //   });
-      // });
-      logs({
-        follow: true, 
-        stdout: true, 
-        stderr: true,
-      }).then(stream => {
-        // console.log(stream.pipe)
-        stream.on('data', chunk => {
-          console.log(`Received ${chunk.length} bytes of data.`);
-        })
-      }).catch(err => {
-        console.error(err)
-      })
-    })
+  
 
-    function sendLogs(containerId, logs){
-      mySocket.emit('logs', {
-        id: containerId,
-        logs: logs
-      });
-    }
     setInterval(function(){
       if(mySocket == null || !Logs[mySocket.id]) return;
       for (var containerId in Logs[mySocket.id]) {
         if (Logs[mySocket.id][containerId].length > 0) {
-          sendLogs(containerId, Logs[mySocket.id][containerId])
+          console.log(`found log ${containerId}`)
+          // sendLogs(containerId, Logs[mySocket.id][containerId])
+          mySocket.emit(containerId, {
+            id: containerId,
+            logs: Logs[mySocket.id][containerId]
+          });
           Logs[mySocket.id][containerId] = [];
         }
       }

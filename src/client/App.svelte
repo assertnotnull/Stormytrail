@@ -8,7 +8,11 @@
 	{/each}
 	</div>
 	<div class="w-5/6 bg-black text-white">
-		{history}
+		{#each Array.from(Object.entries(history)) as [name, logs] }
+			{#each logs as log}
+				<p>{name} - {log}</p>
+			{/each}
+		{/each}
 	</div>
 </div>
 
@@ -20,11 +24,11 @@
 	let containerNames = []
 	let containersUp = []
 	let networks = []
-	let history = []
+	let history = {}
 	let selectContainers = []
 
 	$: {
-		socket.emit(selectContainers)
+		emit(selectContainers)
 	}
 
 	socket.on('initialize', data => {
@@ -36,11 +40,30 @@
 		networks = [...new Set(containerNames.map(container => {
 			return container.network ? container.network : 'default'
 		}))]
+		containerNames.forEach(container => {
+			socket.on(container.id, data => {
+				history[data.id] = [...history[data.id], data.logs]
+			})
+		})
 	})
 	socket.on('logs', data => {
-		history[data.id] += data.logs
+		history[data.id] = [...history[data.id], data.logs]
+		console.log("history", history, data)
 	})
 
+	function emit(selectContainers) {
+		console.log(selectContainers, containerNames)
+		containerNames.forEach(container => {
+			if(history.hasOwnProperty(container.id)) {
+				history[container.id] = []
+				socket.emit(`quiet-${container.name}`)
+			}
+		})
+		selectContainers.forEach(container => {
+			history[container] = []		
+			socket.emit(`listen-${container}`)
+		})
+	}
 	function showSelected() {
 		console.log(selectContainers)
 	}
