@@ -1,9 +1,9 @@
 <div class="flex flex-row bg-gray-200 h-screen">
 	<div class="flex flex-col">
-	{#each networks as network}
+	{#each Array.from(Object.entries(networks)) as [network, containers]}
 		<p>{network}</p>
-		{#each containerNames as container}				
-		<label><input type="checkbox" bind:group={selectContainers} value={container.id}>{container.name}</label>
+		{#each containers as container}
+		<label><input type="checkbox" on:change={() => {emit(container)}} bind:checked={container.selected} value={container.id}>{container.name}</label>
 		{/each}
 	{/each}
 	</div>
@@ -21,51 +21,42 @@
 	import io from 'socket.io-client'
 	const socket = io('http://localhost:3000')
 
-	let containerNames = []
 	let containersUp = []
-	let networks = []
+	let networks = {}
 	let history = {}
-	let selectContainers = []
 
-	$: {
-		emit(selectContainers)
-	}
+	$: {}
 
 	socket.on('initialize', data => {
+	    console.log('initialized called');
 		containersUp = data.containers.filter(container => container.State === 'running')
-		containerNames = containersUp.map(container => {
-			let found = container.Names[0].match(/([a-z]+)_(\w+)_(\d+)_.*/)
-			return found ? {id: found[0], name: found[2], network: found[1]} : {id: container.Names[0], name: container.Names[0].substring(1)}
-		})
-		networks = [...new Set(containerNames.map(container => {
-			return container.network ? container.network : 'default'
-		}))]
-		containerNames.forEach(container => {
-			socket.on(container.id, data => {
+		containersUp.forEach(container => {
+			let network = Object.keys(container.NetworkSettings.Networks)[0].split("_")[0];
+			let id, containerName = container.Names[0].substr(1);
+			let containerNameSplit = containerName.match(/([a-z]+)_(\w+)_(\d+)_.*/);
+			if (containerNameSplit) {
+				id = containerNameSplit[0];
+				containerName = containerNameSplit[2];
+			}
+			socket.on(id, data => {
+			    console.log(data)
+                if (!history[data.id]) history[data.id] = [];
 				history[data.id] = [...history[data.id], data.logs]
-			})
+			});
+			if (!networks[network]) networks[network] = [];
+			networks[network] = [...networks[network], {id, name: containerName, selected: false}]
 		})
-	})
-	socket.on('logs', data => {
-		history[data.id] = [...history[data.id], data.logs]
-		console.log("history", history, data)
 	})
 
-	function emit(selectContainers) {
-		console.log(selectContainers, containerNames)
-		containerNames.forEach(container => {
-			if(history.hasOwnProperty(container.id)) {
-				history[container.id] = []
-				socket.emit(`quiet-${container.name}`)
-			}
-		})
-		selectContainers.forEach(container => {
-			history[container] = []		
-			socket.emit(`listen-${container}`)
-		})
-	}
-	function showSelected() {
-		console.log(selectContainers)
+	function emit(container) {
+	    console.log('clicked', container)
+		if (container.selected) {
+		    socket.emit(`listen-${container.id}`)
+		} else {
+		    socket.emit(`pause-${container.id}`)
+		    console.log(history[container.id])
+		    history[container.id] = []
+		}
 	}
 </script>
 

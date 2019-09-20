@@ -45,53 +45,44 @@ async function start() {
 
     mySocket = socket;
     Logs[mySocket.id] = {};
-    socket.on('subscribe', data => {
-      console.log(`subscribing ${data}`)
-    })
+
     let containers = await docker.listContainers({all: true});
     containers.forEach(function(container){
-      let containerName = container.Names[0];
-      Logs[mySocket.id][containerName] = [];
-      
-      socket.on(`listen-${containerName}`, async () => {
+      let containerId = container.Names[0].substr(1);
+      Logs[mySocket.id][containerId] = [];
+      socket.on(`listen-${containerId}`, async () => {
         //TODO: use stream.pause on socket quiet-container
         //TODO: use stream.resume on socket listen-container
-        watchedContainers[containerName] = docker.getContainer(container.Id);
-        // watchedContainers[containerName].logs({
-        //   follow: true,  
-        //   stdout: true, 
-        //   stderr: true, 
-        //   tail: 10
-        // }, function (err, stream) {
-        //     // var filter = parser(data, {
-        //     //   json: false,
-        //     //   newline: true
-        //     // })
-        //   stream
-        //   .pipe(sparser)
-        //   .on('data', function(line){
-        //     // socket.emit("logs", `${container.Names[0]} - ${line}`) 
-        //     Logs[mySocket.id][containerName].push(line);
-        //   });
-        // });
+        if (!watchedContainers[containerId]) {
 
-        let stream = await watchedContainers[containerName].logs({
-          follow: true,  
-          stdout: true, 
-          stderr: true, 
-          tail: 10
-        })
-        stream
-        .pipe(sparser)
-        .on('data', function(line){
-          // socket.emit("logs", `${container.Names[0]} - ${line}`) 
-          Logs[mySocket.id][containerName].push(line);
-        });
+          console.log(`will watch ${containerId}`)
+          watchedContainers[containerId] = docker.getContainer(container.Id);
+
+          let stream = await watchedContainers[containerId].logs({
+            follow: true,
+            stdout: true,
+            stderr: true,
+            tail: 10
+          })
+          stream
+              .pipe(sparser)
+              .on('data', function (line) {
+                // socket.emit("logs", `${container.Names[0]} - ${line}`)
+                Logs[mySocket.id][containerId].push(line);
+              });
+
+          socket.on(`pause-${containerId}`, async () => {
+            console.log(`pausing container ${containerId}`);
+            stream.pause();
+          })
+        }
       })
-      socket.emit('initialize', {containers});
     });
+    socket.emit('initialize', {containers});
 
-  
+    socket.on('disconnect', async () => {
+      Logs[mySocket.id] = {};
+    });
 
     setInterval(function(){
       if(mySocket == null || !Logs[mySocket.id]) return;
@@ -119,7 +110,7 @@ async function start() {
   })
 
   const path = require('path')
-  
+
   fastify.register(require('fastify-static'), {
     root: path.join(__dirname, '../../public'),
     prefix: '/', // optional: default '/'
