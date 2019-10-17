@@ -32,11 +32,15 @@
 		containersUp = data.containers.filter(container => container.State === 'running')
 		containersUp.forEach(container => {
 			let network = Object.keys(container.NetworkSettings.Networks)[0].split("_")[0];
+			console.log(container.Names[0].substr(1))
 			let id, containerName = container.Names[0].substr(1);
 			let containerNameSplit = containerName.match(/([a-z]+)_(\w+)_(\d+)_.*/);
+			
 			if (containerNameSplit) {
 				id = containerNameSplit[0];
 				containerName = containerNameSplit[2];
+			} else {
+				id = containerName;
 			}
 			socket.on(id, data => {
 			    console.log(data)
@@ -51,6 +55,7 @@
 	function emit(container) {
 	    console.log('clicked', container)
 		if (container.selected) {
+			console.log(`listen-${container.id}`)
 		    socket.emit(`listen-${container.id}`)
 		} else {
 		    socket.emit(`pause-${container.id}`)

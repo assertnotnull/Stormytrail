@@ -1,4 +1,3 @@
-// const { Nuxt, Builder } = require('nuxt')
 const serveStatic = require('serve-static')
 const fastify = require('fastify')({
     logger: true
@@ -6,39 +5,18 @@ const fastify = require('fastify')({
 const Docker = require('dockerode')
 const docker = new Docker({socketPath: '/var/run/docker.sock'});
 const io = require('socket.io')(fastify.server)
-// const cors = require('cors')
 const bluebird = require('bluebird')
-
-// Import and Set Nuxt.js options
-// const config = require('../nuxt.config.js')
-const config = {}
-config.dev = !(process.env.NODE_ENV === 'production')
 
 let mySocket
 let Logs = {}
 
 const sparser = require('./simpleparser')
 
-let watchedContainers = {}
+let streams = {}
 
 async function start() {
-    // Instantiate nuxt.js
-    // const nuxt = new Nuxt(config)
-
     const host = process.env.HOST || 'localhost'
     const port = process.env.PORT || 3000
-
-    // Build only in dev mode
-    if (config.dev) {
-        // fastify.options('*', cors())
-        // fastify.use(cors({origin: '*'}))
-        // const builder = new Builder(nuxt)
-        // await builder.build()
-    } else {
-        // await nuxt.ready()
-    }
-
-    // fastify.use(nuxt.render)
 
     io.on('connection', async socket => {
         fastify.log.info('connected')
@@ -50,31 +28,36 @@ async function start() {
         containers.forEach(function (container) {
             let containerId = container.Names[0].substr(1);
             Logs[mySocket.id][containerId] = [];
+            console.log(`listen-${containerId}`);
             socket.on(`listen-${containerId}`, async () => {
-                //TODO: use stream.pause on socket quiet-container
+              console.log(`got listen-${containerId}`);
+        
+              //TODO: use stream.pause on socket quiet-container
                 //TODO: use stream.resume on socket listen-container
-                if (!watchedContainers[containerId]) {
+                if (!streams[containerId]) {
 
                     console.log(`will watch ${containerId}`)
-                    watchedContainers[containerId] = docker.getContainer(container.Id);
+                    // streams[containerId] = docker.getContainer(container.Id);
 
-                    let stream = await watchedContainers[containerId].logs({
+                    streams[containerId] = await docker.getContainer(container.Id).logs({
                         follow: true,
                         stdout: true,
                         stderr: true,
                         tail: 10
                     })
-                    stream
+                    streams[containerId]
                         .pipe(sparser)
                         .on('data', function (line) {
-                            // socket.emit("logs", `${container.Names[0]} - ${line}`)
+                            socket.emit("logs", `${container.Names[0]} - ${line}`)
                             Logs[mySocket.id][containerId].push(line);
                         });
 
                     socket.on(`pause-${containerId}`, async () => {
                         console.log(`pausing container ${containerId}`);
-                        stream.pause();
+                        streams[containerId].pause();
                     })
+                } else {
+                    streams[containerId].resume()
                 }
             })
         });
@@ -98,15 +81,6 @@ async function start() {
                 }
             }
         }, 500);
-
-
-        function toEmit(container) {
-            return {
-                id: container.Id,
-                image: container.Image,
-                name: container.Names[0].replace(/^\//, '')
-            }
-        }
     })
 
     const path = require('path')
