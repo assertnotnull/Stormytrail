@@ -8,6 +8,7 @@
     "dockerode": "^2.5.8",
     "fastify": "^2.7.1",
     "fastify-static": "^2.5.0",
+    "rxjs": "^6.5.3",
     "serve-static": "^1.14.1",
     "sirv-cli": "^0.4.4",
     "socket.io": "^2.2.0",
