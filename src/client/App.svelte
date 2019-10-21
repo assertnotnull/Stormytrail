@@ -29,11 +29,12 @@
 
 	socket.on('initialize', data => {
 	    console.log('initialized called');
-		containersUp = data.containers.filter(container => container.State === 'running')
+		containersUp = data.containers
+		networks = {}
 		containersUp.forEach(container => {
-			let network = Object.keys(container.NetworkSettings.Networks)[0].split("_")[0];
-			console.log(container.Names[0].substr(1))
-			let id, containerName = container.Names[0].substr(1);
+			let network = Object.keys(container.networkSettings.Networks)[0].split("_")[0];
+			
+			let id, containerName = container.name;
 			let containerNameSplit = containerName.match(/([a-z]+)_(\w+)_(\d+)_.*/);
 			
 			if (containerNameSplit) {
@@ -42,15 +43,17 @@
 			} else {
 				id = containerName;
 			}
-			socket.on(id, data => {
-			    console.log(data)
-                if (!history[data.id]) history[data.id] = [];
-				history[data.id] = [...history[data.id], data.logs]
-			});
+			
 			if (!networks[network]) networks[network] = [];
 			networks[network] = [...networks[network], {id, name: containerName, selected: false}]
 		})
 	})
+
+	socket.on('log', data => {
+		console.log(data)
+		// if (!history[data.id]) history[data.id] = [];
+		// history[data.id] = [...history[data.id], data.logs]
+	});
 
 	function emit(container) {
 	    console.log('clicked', container)
