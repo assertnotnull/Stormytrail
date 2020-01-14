@@ -6,11 +6,12 @@ const Docker = require('dockerode')
 const docker = new Docker({socketPath: '/var/run/docker.sock'});
 const io = require('socket.io')(fastify.server);
 const Rx = require('rxjs');
-const {filter, takeUntil, finalize} = require('rxjs/operators');
+const {filter, takeUntil, finalize, merge} = require('rxjs/operators');
 const sparser = require('./simpleparser')
 
 let mySocket
 let Logs = {}
+let listeningContainers = {}
 
 
 async function start() {
@@ -35,36 +36,29 @@ async function start() {
             }))
         });
 
-        Rx.from(containers)
-            .subscribe(async container => {
-                console.log(container.Names[0])
-                let containerName = container.Names[0].substr(1);
-
-                let logStream = await docker.getContainer(container.Id).logs({
+        socket.on(`getLogs`, async (containerName) => {
+            console.log(`got listen-${containerName}`);
+            let [thisContainer] = containers.filter(container => container.Names[0].substr(1) == containerName)
+            console.log(thisContainer)
+            if (thisContainer) {
+                console.log('found container '+ thisContainer.Id)
+                let logStream = await docker.getContainer(thisContainer.Id).logs({
                     follow: true,
                     stdout: true,
                     stderr: true,
                     tail: 10
                 })
+
                 
                 mySubs[containerName] = Rx.fromEvent(logStream.pipe(sparser), 'data')
                     .pipe(
                         takeUntil(Rx.fromEvent(socket, 'disconnect')),
-                        finalize(() => console.log('stopped stream'))
+                        takeUntil(Rx.fromEvent(socket, `pause-${containerName}`)),
+                        finalize(() => console.log('stream stopped'))
                     )
-
-                socket.on(`listen-${containerName}`, async () => {
-                    console.log(`got listen-${containerName}`);
-                    
-                    mySubs[containerName]
-                        .subscribe(line => {
-                            // console.log(`--------${logStream.socket.parser.outgoing.path}--------`)
-                            console.log(`${container.Names[0]} ${line}`);
-                            socket.emit('log', {containerName, line: `${container.Names[0]} - ${line}`});
-                        })
-                    
-                });
-            })
+                    .subscribe(line => socket.emit('log', {containerName, line: `${containerName} - ${line}`}))
+            }
+        });
     })
 
     fastify.register(require('fastify-static'), {
