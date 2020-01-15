@@ -6,8 +6,8 @@ const Docker = require('dockerode')
 const docker = new Docker({socketPath: '/var/run/docker.sock'});
 const io = require('socket.io')(fastify.server);
 const Rx = require('rxjs');
-const {Subject, generate, interval, timer, from} = require('rxjs');
-const {filter, takeUntil, finalize, merge, switchMap, tap} = require('rxjs/operators');
+const {Subject, generate, interval, timer, from, Observable, defer, of} = require('rxjs');
+const {filter, takeUntil, finalize, mergeMap, switchMap, tap, repeat, delay, startWith, concatMap} = require('rxjs/operators');
 const sparser = require('./simpleparser')
 
 let mySocket
@@ -19,18 +19,15 @@ async function start() {
     const host = process.env.HOST || 'localhost'
     const port = process.env.PORT || 3000
 
-    // let containers = await docker.listContainers({all: true}).filter(container => container.State === 'running')    
-    // const dockerPromise = from(docker.listContainers({all: true}));
-    const source = timer(0, 2000).pipe(
-        tap(_ => console.log('start')),
-        switchMap(_ => docker.listContainers({all: true})),
-        filter(container => container.State === 'running'),
-        tap(c => console.log(c))
+    const source = from(docker.listContainers({all: true}))
+        .pipe(
+            concatMap((runningContainers, i) => i === 0 ? of(runningContainers) : of(runningContainers).pipe(delay(2000))),
+            repeat(),
         )
     
     source.subscribe(runningContainers => {
-        console.log(runningContainers)
-        containers = runningContainers
+        containers = runningContainers.filter(container => container.State === 'running')
+        console.log(containers)
     });
     
     io.on('connection', async socket => {
