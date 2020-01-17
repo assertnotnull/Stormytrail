@@ -19,15 +19,15 @@ async function start() {
     const host = process.env.HOST || 'localhost'
     const port = process.env.PORT || 3000
 
-    const source = from(docker.listContainers({all: true}))
+    const source = timer(0, 5000)
         .pipe(
-            concatMap((runningContainers, i) => i === 0 ? of(runningContainers) : of(runningContainers).pipe(delay(2000))),
+            concatMap(_ => from(docker.listContainers({all: true}))),
             repeat(),
         )
     
     source.subscribe(runningContainers => {
         containers = runningContainers.filter(container => container.State === 'running')
-        console.log(containers)
+        console.log(`${containers.length} containers running`)
     });
     
     io.on('connection', async socket => {
