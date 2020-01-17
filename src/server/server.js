@@ -21,8 +21,7 @@ async function start() {
 
     const source = timer(0, 5000)
         .pipe(
-            concatMap(_ => from(docker.listContainers({all: true}))),
-            repeat(),
+            concatMap(_ => from(docker.listContainers({all: true})))
         )
     
     source.subscribe(runningContainers => {
