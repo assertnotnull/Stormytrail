@@ -24,11 +24,6 @@ async function start() {
             concatMap(_ => from(docker.listContainers({all: true})))
         )
     
-    source.subscribe(runningContainers => {
-        containers = runningContainers.filter(container => container.State === 'running')
-        console.log(`${containers.length} containers running`)
-    });
-    
     io.on('connection', async socket => {
         fastify.log.info('connected')
 
@@ -37,34 +32,46 @@ async function start() {
 
         let mySubs = [];
 
-        socket.emit('initialize', {
-            containers: containers.map(container => ({
-                name: container.Names[0].substr(1),
-                networkSettings: container.NetworkSettings
-            }))
-        });
+        source.subscribe(allContainers => {
+            let runningContainers = allContainers.filter(container => container.State === 'running')
+                .map(c => { return {Id: c.Id, Names: c.Names, NetworkSettings: c.NetworkSettings}})
+            console.log(`${runningContainers.length} containers running`)
+            if (JSON.stringify(containers) !== JSON.stringify(runningContainers)) {
+                console.log('containers updated');
+                containers = runningContainers;
+                socket.emit('initialize', {
+                    containers: containers.map(container => ({
+                        name: container.Names[0].substr(1),
+                        networkSettings: container.NetworkSettings
+                    }))
+                });
+            }
+        });        
 
         socket.on(`getLogs`, async (containerName) => {
             console.log(`got listen-${containerName}`);
             let [thisContainer] = containers.filter(container => container.Names[0].substr(1) == containerName)
-            console.log(thisContainer)
+            // console.log(thisContainer)
             if (thisContainer) {
-                console.log('found container '+ thisContainer.Id)
-                let logStream = await docker.getContainer(thisContainer.Id).logs({
-                    follow: true,
-                    stdout: true,
-                    stderr: true,
-                    tail: 10
-                })
+                if (!mySubs[containerName]) {
+                    console.log('found container '+ thisContainer.Id)
+                    let logStream = await docker.getContainer(thisContainer.Id).logs({
+                        follow: true,
+                        stdout: true,
+                        stderr: true,
+                        tail: 0
+                    })
 
-                
-                mySubs[containerName] = Rx.fromEvent(logStream.pipe(sparser), 'data')
-                    .pipe(
-                        takeUntil(Rx.fromEvent(socket, 'disconnect')),
-                        takeUntil(Rx.fromEvent(socket, `pause-${containerName}`)),
-                        finalize(() => console.log('stream stopped'))
-                    )
-                    .subscribe(line => socket.emit('log', {containerName, line: `${containerName} - ${line}`}))
+                    mySubs[containerName] = Rx.fromEvent(logStream.pipe(sparser), 'data') 
+                }
+                console.log(mySubs)
+                mySubs[containerName]
+                        .pipe(
+                            takeUntil(Rx.fromEvent(socket, 'disconnect')),
+                            takeUntil(Rx.fromEvent(socket, `pause-${containerName}`)),
+                            finalize(() => console.log('stream stopped'))
+                        )
+                        .subscribe(line => socket.emit('log', {containerName, line: `${containerName} - ${line}`}))
             }
         });
     })
