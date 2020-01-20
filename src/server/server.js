@@ -1,4 +1,5 @@
 const path = require('path')
+const stream = require('stream')
 const fastify = require('fastify')({
     logger: true
 })
@@ -7,12 +8,9 @@ const docker = new Docker({socketPath: '/var/run/docker.sock'});
 const io = require('socket.io')(fastify.server);
 const Rx = require('rxjs');
 const {Subject, generate, interval, timer, from, Observable, defer, of} = require('rxjs');
-const {filter, takeUntil, finalize, mergeMap, switchMap, tap, repeat, delay, startWith, concatMap} = require('rxjs/operators');
-const sparser = require('./simpleparser')
+const {filter, takeUntil, finalize, mergeMap, map, tap, repeat, delay, startWith, concatMap} = require('rxjs/operators');
 
-let mySocket
-let Logs = {}
-let listeningContainers = {}
+const lineRegex = /^(\d\d)T(\d\d):(\d\d):(\d\d\.\d+)Z (.*)/
 let containers = []
 
 async function start() {
@@ -28,7 +26,6 @@ async function start() {
         fastify.log.info('connected')
 
         mySocket = socket;
-        Logs[mySocket.id] = {};
 
         let mySubs = [];
 
@@ -51,7 +48,7 @@ async function start() {
         socket.on(`getLogs`, async (containerName) => {
             console.log(`got listen-${containerName}`);
             let [thisContainer] = containers.filter(container => container.Names[0].substr(1) == containerName)
-            // console.log(thisContainer)
+            
             if (thisContainer) {
                 if (!mySubs[containerName]) {
                     console.log('found container '+ thisContainer.Id)
@@ -59,19 +56,32 @@ async function start() {
                         follow: true,
                         stdout: true,
                         stderr: true,
-                        tail: 0
+                        timestamps: true,
+                        tail: 20
                     })
-
-                    mySubs[containerName] = Rx.fromEvent(logStream.pipe(sparser), 'data') 
+                    const chunktoStringSteam = new stream.Transform({
+                        readableObjectMode: true,
+                        transform(chunk, encoding, cb) {
+                            this.push(chunk.toString('utf8', 8))
+                            cb()
+                        }
+                    });
+                    mySubs[containerName] = Rx.fromEvent(logStream.pipe(chunktoStringSteam), 'data') 
                 }
-                console.log(mySubs)
+
                 mySubs[containerName]
                         .pipe(
                             takeUntil(Rx.fromEvent(socket, 'disconnect')),
                             takeUntil(Rx.fromEvent(socket, `pause-${containerName}`)),
-                            finalize(() => console.log('stream stopped'))
+                            finalize(() => console.log('stream stopped')),
+                            // map(line => {
+                            //     const matches = line.match(lineRegex)
+                            //     return {}
+                            // })
                         )
-                        .subscribe(line => socket.emit('log', {containerName, line: `${containerName} - ${line}`}))
+                        .subscribe(line => {
+                            socket.emit('log', {containerName, line}
+                        )})
             }
         });
     })
