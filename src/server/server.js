@@ -18,9 +18,6 @@ async function start() {
     const port = process.env.PORT || 3000
 
     const source = timer(0, 5000)
-        .pipe(
-            concatMap(_ => from(docker.listContainers({all: true})))
-        )
     
     io.on('connection', async socket => {
         fastify.log.info('connected')
@@ -29,21 +26,29 @@ async function start() {
 
         let mySubs = [];
 
-        source.subscribe(allContainers => {
-            let runningContainers = allContainers.filter(container => container.State === 'running')
-                .map(c => { return {Id: c.Id, Names: c.Names, NetworkSettings: c.NetworkSettings}})
-            console.log(`${runningContainers.length} containers running`)
-            if (JSON.stringify(containers) !== JSON.stringify(runningContainers)) {
-                console.log('containers updated');
-                containers = runningContainers;
-                socket.emit('initialize', {
-                    containers: containers.map(container => ({
-                        name: container.Names[0].substr(1),
-                        networkSettings: container.NetworkSettings
-                    }))
-                });
-            }
-        });        
+        source.pipe(
+                concatMap(_ => from(docker.listContainers({all: true}))),
+                takeUntil(Rx.fromEvent(socket, 'disconnect')),
+                finalize(() => containers = []),
+            )
+            .subscribe(allContainers => {
+                let runningContainers = allContainers
+                    .filter(container => container.State === 'running')
+                    .map(c => { return {Id: c.Id, Names: c.Names, NetworkSettings: c.NetworkSettings}})
+                
+                    console.log(`${runningContainers.length} containers running`)
+                
+                if (JSON.stringify(containers) !== JSON.stringify(runningContainers)) {
+                    console.log('containers updated');
+                    containers = runningContainers;
+                    socket.emit('initialize', {
+                        containers: containers.map(container => ({
+                            name: container.Names[0].substr(1),
+                            networkSettings: container.NetworkSettings
+                        }))
+                    });
+                }
+            });        
 
         socket.on(`getLogs`, async (containerName) => {
             console.log(`got listen-${containerName}`);
@@ -74,14 +79,10 @@ async function start() {
                             takeUntil(Rx.fromEvent(socket, 'disconnect')),
                             takeUntil(Rx.fromEvent(socket, `pause-${containerName}`)),
                             finalize(() => console.log('stream stopped')),
-                            // map(line => {
-                            //     const matches = line.match(lineRegex)
-                            //     return {}
-                            // })
                         )
                         .subscribe(line => {
                             socket.emit('log', {containerName, line}
-                        )})
+                        )});
             }
         });
     })
