@@ -1,13 +1,18 @@
 <div class="flex flex-row bg-gray-200 h-screen">
-	<div class="flex flex-col">
+	<div class="w-3/12 p-2 flex flex-col overflow-y-auto">
 	{#each Array.from(Object.entries(networks)) as [network, containers]}
-		<p>{network}</p>
-		{#each containers as container}
-		<label><input type="checkbox" bind:checked={container.selected} on:change={() => {emit(container)}} value={container.id}>{container.name}</label>
-		{/each}
+		<div class="border border-gray-500 rounded truncate">
+			<h2 class="bg-gray-500 px-2">{network}</h2>
+			{#each containers as container}
+			<div>
+				<input class="m-2" type="checkbox" id="{container.name}" bind:checked={container.selected} on:change={() => {emit(container)}} value={container.id}>
+				<label for="{container.name}" class="align-text-bottom">{container.name}</label>
+			</div>
+			{/each}
+		</div>
 	{/each}
 	</div>
-	<div class="w-5/6 bg-black text-white">
+	<div class="w-9/12 bg-black text-white overflow-y-auto p-4">
 		{#each Array.from(Object.entries(history)) as [name, logs] }
 			{#each logs as log}
 				<p>{name} - {log}</p>
@@ -73,7 +78,5 @@
 </script>
 
 <style>
-	h1 {
-		color: purple;
-	}
+	
 </style>
