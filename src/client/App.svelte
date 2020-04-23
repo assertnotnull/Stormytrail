@@ -15,7 +15,7 @@
 	<div class="w-9/12 bg-black text-white overflow-y-auto p-4">
 		{#each Array.from(Object.entries(history)) as [name, logs] }
 			{#each logs as log}
-				<p>{name} - {log}</p>
+				<p>{name} - {log.timestamp} {@html log.line}</p>
 			{/each}
 		{/each}
 	</div>
