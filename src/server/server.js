@@ -9,6 +9,9 @@ const io = require('socket.io')(fastify.server);
 const Rx = require('rxjs');
 const {Subject, generate, interval, timer, from, Observable, defer, of} = require('rxjs');
 const {filter, takeUntil, finalize, mergeMap, map, tap, repeat, delay, startWith, concatMap} = require('rxjs/operators');
+const Ansihtml = require('ansi_up');
+const convert = new Ansihtml.default();
+
 
 const lineRegex = /^(\d\d)T(\d\d):(\d\d):(\d\d\.\d+)Z (.*)/
 let containers = []
@@ -76,11 +79,18 @@ async function start() {
 
                 mySubs[containerName]
                         .pipe(
+                            map(line => {
+                                return {
+                                    timestamp: line.substr(0, 30),
+                                    line: convert.ansi_to_html(line.substr(31))
+                                }
+                            }),
                             takeUntil(Rx.fromEvent(socket, 'disconnect')),
                             takeUntil(Rx.fromEvent(socket, `pause-${containerName}`)),
                             finalize(() => console.log('stream stopped')),
                         )
                         .subscribe(line => {
+                            console.log(line)
                             socket.emit('log', {containerName, line}
                         )});
             }
