@@ -1,0 +1,9 @@
+@font-face {
+    font-family: 'Iosevka-light';
+    src: url('iosevka-fixed-ss12-light.woff')
+}
+
+html {
+    font-family: 'Iosevka-light', monospace !important;
+}
+  
